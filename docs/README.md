@@ -25,7 +25,7 @@ This causes recurring problems:
 | Problem | Consequence |
 |---|---|
 | No single authoritative record of an item | Applications disagree about basic facts (category, dimensions, name). |
-| Competing identifiers (article number, SKU, Shopify variant ID, legacy IDs) | Joining data across applications is fragile and manual. |
+| No single authority for our own article numbers and SKUs, plus foreign IDs (Shopify, legacy systems, suppliers) scattered across applications | Joining data across applications is fragile and manual. |
 | Every application defines its own "location" and "person/organization" | The same warehouse or supplier exists many times with different identities. |
 | Applications write directly to each other's databases | Validation, authorization and auditing cannot be enforced consistently. |
 | Workflow state and business facts are mixed in the same records | "Awaiting photography" ends up looking like a property of a sofa. |
@@ -44,8 +44,8 @@ In one sentence:
 
 Concretely, the architecture must make it possible to:
 
-1. Give every item a **single stable canonical identity** (`item_id`) that all applications reference.
-2. Let existing applications **resolve their existing identifiers** (article number, SKU, Shopify IDs, legacy IDs) to that canonical identity *without* forcing an immediate big-bang migration.
+1. Give every item a **single stable canonical identity** (`item_id`) that all applications reference, and make our own business identifiers (`article_number`, `sku`) genuinely unique by giving them one authority.
+2. Let existing applications **resolve their existing foreign identifiers** (Shopify IDs, legacy system IDs, supplier article numbers) to that canonical identity *without* forcing an immediate big-bang migration.
 3. Keep canonical facts (classification, dimensions, properties) **validated and consistent**, because they are written through one boundary.
 4. Keep application workflow state (photography queue, listing draft, review status) **out** of the canonical model, so the canonical model stays stable while workflows change.
 5. Let applications **react to canonical changes** through events and maintain their own local read models.
@@ -73,10 +73,11 @@ If it is only true inside one workflow, it does **not** belong in a centralized 
 
 | Canonical (belongs in a domain) | Application-specific (stays in the application) |
 |---|---|
-| item name *(see [Open question OQ-ITEM-02](12-open-questions.md#item))* | `awaiting_photography` |
+| item dimensions and weight (universal) + properties (conditional on type) | `awaiting_photography` |
 | item dimensions | `selected_for_campaign` |
 | item category / item type | `currently_being_reviewed` |
-| item identifiers (SKU, Shopify variant ID, …) | listing draft state |
+| item identity (`item_id`, `article_number`, `sku`) and external identifiers (Shopify variant ID, …) | listing draft state |
+| item images (what the thing looks like) | photo review / retouching state |
 | inventory quantity at a location | UI state, task state, assignment state |
 
 ---
@@ -133,12 +134,14 @@ Solid arrows are established references. Dotted arrows are proposed or open — 
 
 | Concern | Owner | Notes |
 |---|---|---|
-| Canonical item identity (`item_id`) | **Item** | Stable, never reused. |
+| Canonical surrogate identity (`item_id`) | **Item** | Stable, never reused, minted by the domain. What applications store and reference. |
+| Canonical business identity (`article_number`, `sku`) | **Item** | Our own numbering schemes, marking lifecycle stages: `article_number` at registration (required), `sku` at publication for sale (absent until then). Values supplied by the creating app/person; the domain enforces uniqueness and format. |
 | Item classification (category, item type) | **Item** | Determines which properties are legal. |
 | Item dimensions, weight | **Item** | Conceptually first-class; see open questions on units and universality. |
+| Item images (visual representation) | **Item** | Absolute URLs + a storage/source `type`. The domain owns the references; the files live in application or third-party storage. |
 | Item properties (material, seat count, bulb type, …) | **Item** | Definition-driven, validated against classification. |
-| External / business identifiers (SKU, article number, Shopify IDs, legacy IDs) | **Item** | Recorded *as identifiers pointing at* an item; never the canonical identity itself. |
-| Category / ItemType / PropertyDefinition reference data | **Item** | Governance of this reference data is an open question. |
+| External identifiers (Shopify IDs, legacy app IDs, supplier article numbers) | **Item** | Foreign-issued. Recorded *as pointers at* an item; never canonical identity. |
+| Category / ItemType / PropertyDefinition reference data | **Item** | Includes each category's and item type's `icon_url` and `image_url`. Governance of this reference data is an open question. |
 | Inventory positions (item × location × quantity) | **Inventory** | |
 | Inventory movements (why quantity changed) | **Inventory** | Movements are the traceable cause of every change. |
 | Location identity (`location_id`) | **Location** | Warehouse, store, floor, storage area, dealer/customer location, … |
@@ -156,7 +159,7 @@ Applications are **not** being hollowed out. They continue to own:
   (e.g. Worker: `workflow_state = awaiting_photography`; Seller: `listing_state = draft`);
 - their **tasks, assignments, queues, UI state**;
 - their **own databases** for the above;
-- their **local projections** of canonical data (e.g. a cached item name and category for display), which they keep up to date from domain events;
+- their **local projections** of canonical data (e.g. a cached article number, classification and image for display), which they keep up to date from domain events;
 - the decision of **when** to issue a command to a domain (e.g. "the worker has measured the sofa — send `UpdateItemDimensions`").
 
 What changes for applications:
@@ -334,8 +337,19 @@ Invariants are numbered `INV-<AREA>-nn` (see [11-invariants.md](11-invariants.md
 
 - The four domains and their one-sentence responsibilities.
 - The canonical-vs-workflow ownership rule.
-- Canonical `item_id` as the only canonical identity; external identifiers are attached, not canonical.
-- Classification-driven, definition-based properties (no giant item table).
+- Three-layer identity: the domain-minted surrogate `item_id` (what applications reference), the canonical business identities `article_number` and `sku` (supplied by the creating app/person, uniqueness and format enforced by the domain), and foreign-issued external identifiers, which are attached as pointers and are never canonical.
+- **An Item is the canonical identity the business assigns to one or more physical units** treated as the same thing for identification purposes. There is **no invariant that one Item equals one physical unit** — multiple units may share one `item_id`, `article_number` and `sku`. One Item per unique vintage piece is a common usage pattern, not a domain rule. How many units exist is Inventory's concern alone.
+- **Identity grouping is a business decision** made at registration; the domain records and enforces it, never infers it. Splitting or combining identities later is separate "marriage / divorce" machinery — undefined, out of scope, and not to be pre-modelled.
+- **Items have no relationships to other Items.** No variants, sets, components or parent/child links. Grouping or splitting identity is separate "marriage / divorce" machinery, out of scope here, as is `catalogue_id`.
+- `article_number` is assigned at registration and is required; `sku` is assigned when the restored piece is published for sale and is absent until then.
+- `dimensions` and `weight` are **universal** first-class attributes (every object has them); properties are **conditional** on category and type. Units are not yet specified.
+- Identifier, property and image changes **all increment `item.version`** — the contention that creates is accepted deliberately.
+- Mandatory at creation: `article_number`, `category`, `item_type` and required properties. Nothing else.
+- No `name` and no `description`: a human recognises a piece by its **type, image, and article number or SKU**.
+- Soft deletion follows the industry standard; identifier uniqueness stays permanent regardless.
+- Classification-driven, definition-based properties (no giant item table). An item can never exist unclassified.
+- Items can be deleted, always as soft deletes. There is **no retire and no merge**: "more of this thing" is a quantity fact in Inventory, not an item-record operation. Deletion does not consult Inventory.
+- Item images are canonical (`ItemImage` link records: absolute `url` + storage/source `type`); the domain owns the references, not the files. `Category` and `ItemType` each carry an `icon_url` and an `image_url`.
 - Inventory as a separate domain, expressed through movements rather than quantity overwrites.
 - Single write boundary per domain; no direct database access by applications.
 - Command → validation → transaction → outbox → event pipeline; at-least-once delivery; idempotent consumers.
@@ -357,9 +371,9 @@ These are the subject of a **follow-up architecture/design session**. This packa
 
 Listed in full in [12-open-questions.md](12-open-questions.md). The ones most likely to change the shape of the implementation:
 
-1. **Item granularity** — is an Item a *product definition* (SKU-level, may exist in quantity > 1) or a *unique physical unit* (quantity is always 0 or 1)? Or both? This affects identifiers, inventory quantity semantics and Shopify mapping. (`OQ-ITEM-01`)
-2. **Identifier uniqueness scope** — whether `(namespace, identifier_type, value)` must resolve to at most one item, and whether an item may carry several identifiers of the same type. (`OQ-ID-01`, `OQ-ID-02`, `OQ-ID-03`)
-3. **Aggregate boundary and versioning** — whether identifier and property changes increment the item's version. (`OQ-ITEM-05`)
-4. **Whether `name` (and similar descriptive attributes) is a first-class canonical attribute.** The brief lists `item.name` as canonical but the conceptual model does not contain it. (`OQ-ITEM-02`)
-5. **Reference-data governance** — who may create/alter categories, item types and property definitions, and what happens to existing items when definitions change. (`OQ-CLS-02`, `OQ-PROP-03`)
-6. **Migration and system of record for bootstrapping** — which existing application data seeds the Item Domain and how duplicates across applications are reconciled. (`OQ-MIG-01`, `OQ-MIG-02`)
+1. **Units for dimensions and weight** — a `220` that might be centimetres or millimetres corrupts data silently, and units cannot be retrofitted cheaply. (`OQ-ITEM-03`)
+2. **Which identifier namespaces are one-to-one vs one-to-many** — it is settled that several items *can* share one foreign identifier; the per-namespace policy is not. (`OQ-ID-01`, `OQ-ID-02`)
+3. **Business identifier format, mutability and normalization** — the domain enforces rules on supplied values that it has not yet been given. (`OQ-CID-03`, `OQ-CID-04`, `OQ-CID-05`)
+4. **Property definition evolution** — required properties are now enforced at creation, so an item created before a property became required is retroactively invalid. (`OQ-PROP-03`)
+5. **Reference-data governance** — who may create or alter categories, item types and property definitions. (`OQ-CLS-02`)
+6. **Migration and system of record for bootstrapping** — which existing application data seeds the Item Domain and how duplicates are reconciled, now that there is no merge. (`OQ-MIG-01`, `OQ-MIG-02`)

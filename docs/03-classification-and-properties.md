@@ -17,9 +17,12 @@ Instead, classification is explicit, and properties are **defined per classifica
 
 > *"Is this property legal for this item, and is this value valid?"*
 
+**Properties are conditional; dimensions and weight are not.** Every physical object has dimensions and a weight regardless of what kind of thing it is, so those are universal first-class attributes of the Item ([01](01-item-domain.md)). Properties are the opposite: they are **conditional attributes, meaningful only given the item's category and type**. That distinction is the whole reason this vocabulary exists (`OQ-ITEM-03`).
+
 ## Owns
 
 - The classification vocabulary: `Category`, `ItemType`.
+- The presentational assets for that vocabulary: each `Category` and `ItemType` carries an `icon_url` and an `image_url`.
 - The property vocabulary: `PropertyDefinition` (name, data type, unit, required flag, constraints, and the classification it applies to).
 - The assignment of property values to items: `ItemProperty`.
 - The **validation rules** that connect them.
@@ -31,7 +34,7 @@ All of this is owned by the **Item Domain** — classification is not a separate
 | Not owned | Belongs to |
 |---|---|
 | Workflow-relevant attributes such as "photographed", "priced", "listed" | Applications. These are process facts, not properties of the thing. |
-| Sales copy / marketing descriptions per channel | **Open** (`OQ-PROP-06`). A Shopify listing title written for a campaign is probably channel-specific; a canonical descriptive name may be canonical (`OQ-ITEM-02`). Do not assume. |
+| Sales copy / marketing descriptions per channel | **Open** (`OQ-PROP-06`). A Shopify listing title written for a campaign is channel-specific. Note the item has no canonical `name` (`OQ-ITEM-02` resolved), so if any descriptive text is to be canonical it must be a property. Do not assume. |
 | Pricing attributes | Not assigned to any centralized domain in this architecture. |
 | Inventory-related attributes (quantity, location) | [Inventory](04-inventory-domain.md) |
 | Application-specific tags, labels, filters | Applications |
@@ -42,11 +45,15 @@ All of this is owned by the **Item Domain** — classification is not a separate
 Category
     id
     name
+    icon_url             ← small presentational asset (navigation, filters, chips)
+    image_url            ← larger presentational asset (headers, cards)
 
 ItemType
     id
     category_id          ← an item type belongs to exactly one category (proposed)
     name
+    icon_url
+    image_url
 
 PropertyDefinition
     id
@@ -85,6 +92,14 @@ Examples from the brief:
 | Furniture | Sofa | material, seat_count, color, upholstery, style |
 | Lighting | Lamp | bulb_type, wattage, socket_type |
 
+### Presentational assets on the vocabulary
+
+`Category` and `ItemType` each carry an `icon_url` (small — navigation, filters, chips) and an `image_url` (larger — headers, cards).
+
+These are presentation, which might look like application territory. They belong here for the same reason the vocabulary itself does: if each application picked its own icon for "Furniture", the same category would look like a different thing in the Manager app, the Seller app and the Scanner. The icon is part of what the category *is* to the business, so it lives with the category and every application renders the same one.
+
+Note the contrast with item images. An item's images are *evidence of what that specific thing looks like*; a category's icon is *a label for a concept*. Both are canonical, for different reasons. Open questions on mandatory-ness and fallbacks: `OQ-IMG-07`.
+
 ### How validation works (conceptual)
 
 For an item classified as `(category_id, item_type_id)`, the set of **allowed property definitions** is:
@@ -93,6 +108,8 @@ For an item classified as `(category_id, item_type_id)`, the set of **allowed pr
 allowed(item) = definitions scoped to item.item_type_id
               ∪ definitions scoped to item.category_id      (if category-level definitions are adopted)
 ```
+
+Because an item can never be unclassified (`INV-ITEM-09`), `allowed(item)` is always well-defined — there is no "not classified yet" edge case for validation to handle.
 
 Then:
 
@@ -107,7 +124,7 @@ The precedence when a property is defined at both category and item-type level (
 | Kind | Entities | Lifecycle |
 |---|---|---|
 | **Reference data** (vocabulary) | `Category`, `ItemType`, `PropertyDefinition` | Changes rarely; changes affect *all* items of that classification; governed by someone (open, `OQ-CLS-02`). |
-| **Item data** | `Item`, `ItemProperty`, `ItemIdentifier` | Changes per item; guarded by the item's version. |
+| **Item data** | `Item`, `ItemProperty`, `ItemIdentifier`, `ItemImage` | Changes per item; guarded by the item's version. |
 
 Changing reference data is a **different kind of operation** from changing an item and should be treated as such by the API and by authorization.
 
@@ -124,7 +141,7 @@ Full list in [11-invariants.md](11-invariants.md#classification-and-properties).
 
 - `INV-CLS-03` — An `ItemType` belongs to exactly one `Category`.
 - `INV-CLS-04` — An item carries at most one value per `PropertyDefinition` (multi-valued properties would be modelled explicitly in the definition, `OQ-PROP-02`).
-- `INV-CLS-05` — Required properties must be present for an item to be considered *complete*; whether incompleteness blocks a command or is merely reportable is open.
+- `INV-CLS-05` — Required properties must be present **at creation**; an item cannot be created missing one. (`OQ-ITEM-06` resolved.)
 - `INV-CLS-06` — A `PropertyDefinition` cannot be deleted while items carry values for it (deprecate instead).
 
 **Open**

@@ -63,26 +63,25 @@ On conflict the caller must **re-read and decide** — retry against the new ver
 | Entity | Versioned? |
 |---|---|
 | `Item` (aggregate root) | **CONFIRMED** |
-| `ItemIdentifier`, `ItemProperty` | **PROPOSED:** not independently versioned; changes to them increment the owning item's version (`OQ-ITEM-05`). |
+| `ItemIdentifier`, `ItemProperty`, `ItemImage` | **CONFIRMED:** not independently versioned; changes to them increment the owning item's version (`OQ-ITEM-05` resolved). |
 | `Category`, `ItemType`, `PropertyDefinition` | **PROPOSED:** versioned as reference-data entities. |
 | `InventoryPosition` | **OPEN:** per-position version, per-item version, or database serialization (see [04](04-inventory-domain.md)). |
 | `InventoryMovement` | Immutable — no version needed. |
 | `Location`, `Party` | **PROPOSED:** versioned. |
 
-### Aggregate boundary trade-off (`OQ-ITEM-05`)
+### Aggregate boundary — **RESOLVED** (`OQ-ITEM-05`)
 
-If identifier and property changes bump `item.version`:
+**Identifier, property and image changes all increment `item.version`.** That is what the version is for: it tracks the item's canonical state as a whole, so a change to any part of it is a change to the item.
 
-- **pro:** one version guards the whole item; a form that edits properties and dimensions together is safe; consumers can order all item events by one number.
-- **con:** two applications editing *different* properties of the same item conflict unnecessarily; the Shopify worker adding an identifier can invalidate a Worker's pending dimension edit.
+The cost is accepted deliberately:
 
-If they do not:
+- **What we get:** one version guards the whole item. A form editing properties and dimensions together is safe, the "is this property legal for this classification?" check cannot race a concurrent reclassification, and consumers can order every item event by a single number.
+- **What we pay:** two applications editing *different* parts of the same item will conflict. A Shopify worker adding an identifier can invalidate a Worker's pending dimension edit. A Worker uploading eight photographs produces eight version bumps.
 
-- **pro:** less contention.
-- **con:** the "is this property legal for this classification?" check can race with a concurrent reclassification unless guarded another way; events need multiple version streams.
+The second is the point, not a defect — the alternative is silent divergence, which is what this architecture exists to prevent. Two practical consequences follow:
 
-This is a genuine design decision with business implications (how often do different apps edit the same item concurrently?). It is recorded, not resolved.
-
+1. **Applications need a re-read-and-retry path**, not a one-shot write. A conflict is an expected outcome on a busy item, not an exceptional error.
+2. **Command granularity now matters more** (`OQ-API-02`). A coarse `UpdateItem` that saves a whole form is one version bump; the equivalent fine-grained commands are many, each a fresh chance to conflict.
 ### Is `expected_version` mandatory? (`OQ-CC-01`)
 
 Options:

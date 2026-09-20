@@ -67,6 +67,8 @@ flowchart TB
 | Any domain → application | **FORBIDDEN** (dependency on app state) / PROPOSED (no direct calls) | Domains never depend on application state. Proposed: they communicate outward only by publishing events, not by calling applications (`INV-INT-07`). |
 | Application → domain | CONFIRMED | Via commands, queries and event consumption only. |
 
+A worked consequence of these rules: **item deletion does not check whether Inventory still holds stock**, because `Item → Inventory` is forbidden. That is the boundary doing its job rather than failing. Item stays ignorant of stock, and the cost — a soft-deleted item whose positions outlive it — is paid in reconciliation rather than in a dependency that would make Item unavailable whenever Inventory is. See `INV-ITEM-13` and `OQ-ITEM-10`.
+
 A reference is always **by canonical ID**. A domain never copies another domain's descriptive data into its own canonical state (Inventory does not store the item's name). If it needs such data for validation or display, it keeps a *projection* — the same rule that applies to applications.
 
 ## Ownership matrix
@@ -75,7 +77,8 @@ A reference is always **by canonical ID**. A domain never copies another domain'
 |---|:-:|:-:|:-:|:-:|:-:|
 | `item_id` | **owns** | refs | | | refs |
 | category / item type / properties / dimensions / weight | **owns** | | | | projects |
-| external identifiers (SKU, Shopify IDs, legacy IDs) | **owns** | | | | supplies / projects |
+| `article_number`, `sku` (canonical business identity) | **owns** the guarantee | | | | supply the values |
+| external identifiers (Shopify IDs, legacy app IDs, supplier article numbers) | **owns** | | | | supplies / projects |
 | classification reference data | **owns** | | | | projects |
 | quantity per item per location | | **owns** | | | projects |
 | movement history | | **owns** | | | refs by `reference_id` |
@@ -83,7 +86,8 @@ A reference is always **by canonical ID**. A domain never copies another domain'
 | `party_id`, party name/kind | | open | refs (proposed) | **owns** | refs / projects |
 | workflow state, task state, listing state, UI state | | | | | **owns** |
 | local projections of any of the above | | | | | **owns** (as cache) |
-| orders, prices, media | *not assigned in this architecture — see open questions* | | | | |
+| item images (URL references + storage `type`) | **owns** | | | | upload the files, supply the URLs |
+| orders, prices | *not assigned in this architecture — see open questions* | | | | |
 
 ## The canonical-vs-workflow test
 
@@ -100,15 +104,19 @@ Worked examples:
 | `item.dimensions` | Yes — the sofa is 220 cm wide regardless of who asks. | Canonical (Item) |
 | `item.category` | Yes. | Canonical (Item) |
 | `item.identifiers` | Yes — the Shopify variant ID is a fact about how Shopify refers to the item. | Canonical (Item) |
-| `item.name` | Probably yes — but **not in the conceptual model**. | Canonical, pending `OQ-ITEM-02` |
+| `item.images` | Yes — what the thing looks like is true of the thing itself. | Canonical (Item) |
+| `item.name` | Universally true, but **valueless** — classification and properties already say what the thing is, and free text adds nothing enforceable. | **Not modelled** (`OQ-ITEM-02` resolved). A model name, if ever needed, becomes a property. |
 | `item.quantity_on_hand` | It is a fact, but about *stock*, not about *the thing*. | Canonical, but **Inventory** |
 | `item.location` | Same. | **Inventory** |
 | `awaiting_photography` | No — it describes the Worker app's process. | Application (Worker) |
+| `photo_approved_for_listing` | No — describes a review process, not the photo. | Application (Seller) |
 | `listing_state = draft` | No — describes the Seller/Shopify process. | Application (Seller) |
 | `selected_for_campaign` | No. | Application |
 | `currently_being_reviewed` | No. | Application |
 | `assigned_to_user` | No. | Application |
 | `condition = damaged` | Ambiguous: is it a fact about the physical unit (Item? Inventory?) or a workflow flag? | **Open** (`OQ-INV-05`) — do not assume |
+
+Note what `item.name` demonstrates: passing the "universally true" test is **necessary but not sufficient**. A fact can be true of the item and still not belong in the canonical model, if it carries no meaning the domain can validate and nothing depends on it. *"Is it true?"* and *"is it worth modelling?"* are two separate questions.
 
 A second useful test, for fields that *are* universally true:
 
@@ -170,4 +178,5 @@ If even one application writes directly, none of these can be trusted, because t
 - `OQ-API-05` — Direct read access to domain databases (proposed: prohibited).
 - `OQ-OPS-03` — Deployment topology (separate processes vs modular deployable with separate persistence).
 - `OQ-INV-05` — Where "condition" of a physical unit belongs.
-- Orders, prices and media are referenced by applications but assigned to no domain here (`OQ-ITEM-08`, and out-of-scope note in [01](01-item-domain.md#does-not-own)).
+- Orders and prices are referenced by applications but assigned to no domain here (see the out-of-scope note in [01](01-item-domain.md#does-not-own)).
+- Images **are** canonical and owned by Item (`OQ-ITEM-08` resolved), but the image *files* live in application or third-party storage — the one place where canonical state depends on infrastructure no domain controls (`OQ-IMG-04`).

@@ -50,10 +50,10 @@ The following is **illustrative** — it describes plausible roles based on the 
 | Application | Likely reads | Likely commands | Keeps for itself |
 |---|---|---|---|
 | **Manager** | Everything: items, identifiers, classification vocabulary, inventory positions and history, locations, parties. | Item creation and correction; reference-data management (if Manager is the governance UI — open); `adjust`; location/party creation. | Management workflows, review states, approvals. |
-| **Worker** | Items assigned to its tasks (projection: name, category, identifiers, dimensions, version); allowed property definitions for forms. | `UpdateItemDimensions`, `SetItemProperty`, possibly `receive`/`place`/`transfer`. | `workflow_state` (e.g. `awaiting_photography`), task assignment, photo-session state. |
+| **Worker** | Items assigned to its tasks (projection: article number, category, identifiers, dimensions, images, version); allowed property definitions for forms. | `UpdateItemDimensions`, `SetItemProperty`, possibly `receive`/`place`/`transfer`. | `workflow_state` (e.g. `awaiting_photography`), task assignment, photo-session state. |
 | **Seller** | Item projection for listing preparation; identifiers (Shopify IDs); total availability from Inventory. | `AddItemIdentifier` (Shopify IDs, if Seller creates listings); possibly property edits. | `listing_state` (`draft`, `published`), channel-specific copy, campaign selections. |
 | **Scanner** | Identifier → `item_id` resolution; location resolution; positions at a location. | `transfer`, `place`, possibly `receive`. | Scan sessions, offline queue, device state. |
-| **Shopify / integration workers** | Identifier resolution; item projection for sync; availability. | `AddItemIdentifier`, `sell`, `return`; possibly property/`name` updates if Shopify is a source (open, `OQ-MIG-04`). | Sync cursors, webhook dedup state, per-channel mapping. |
+| **Shopify / integration workers** | Identifier resolution; item projection for sync; availability. | `AddItemIdentifier`, `sell`, `return`; possibly property or image updates if Shopify is a source (open, `OQ-MIG-04`). | Sync cursors, webhook dedup state, per-channel mapping. |
 
 ## Projections
 
@@ -65,7 +65,6 @@ Example (Worker), from the brief:
 {
     "item_id": "itm_123",
     "article_number": "A-4932",
-    "name": "Stockholm Sofa",
     "category": "Furniture",
     "version": 17
 }
@@ -73,8 +72,8 @@ Example (Worker), from the brief:
 
 Observations about this example that the design session must resolve:
 
-- `article_number` is an **identifier** (some namespace/type); the projection flattens one chosen identifier into a field. That is fine for a projection, but the projection must know *which* identifier to pick when there are several (`OQ-ID-02`).
-- `name` is not in the conceptual item model (`OQ-ITEM-02`).
+- `article_number` is a **canonical attribute** of the item, so the projection simply copies a field. (Had it been an external identifier, the projection would have needed a rule for choosing *which* identifier to flatten — that problem does not arise for canonical business identity.)
+- There is **no** `name`: the projection caches `article_number` and `category`, which is what the app actually displays. Anything more descriptive comes from properties or images (`OQ-ITEM-02` resolved; what apps display is `OQ-ITEM-09`).
 - `category` is a name, not an ID — the projection resolved the reference-data ID to a display name, so it must also consume reference-data events (or re-query) when categories are renamed.
 - `version` is the item version at the time of the last applied event — this is what makes idempotent application possible.
 
@@ -88,13 +87,14 @@ Observations about this example that the design session must resolve:
 
 ## Identifier resolution and migration (outline only)
 
-Each application currently holds its own item identifiers. The identifier model in [02](02-canonical-identity-and-identifiers.md) is designed so that migration can be **incremental**:
+Each application currently holds its own item identifiers — some are our own article numbers and SKUs (which become canonical attributes), others are that application's internal surrogate keys (which become external identifiers). The identifier model in [02](02-canonical-identity-and-identifiers.md) is designed so that migration can be **incremental**:
 
 ```
 Phase 0 (today)        App record { local_id: 4711, article: "A-4932", … }
-Phase 1 (bridge)       Item Domain has itm_123 with identifiers
-                           legacy_<app>/item_id/4711
-                           internal/article_number/A-4932   (namespace names illustrative)
+Phase 1 (bridge)       Item Domain has itm_123 with
+                           article_number = "A-4932"            ← canonical attribute
+                           sku            = "SOFA-STO-3L"       ← canonical attribute
+                           external identifier legacy_<app>/item_id/4711   (namespace names illustrative)
                        App resolves 4711 → itm_123 on demand and stores item_id alongside
 Phase 2 (converged)    App records carry item_id; local canonical fields become projection fields
 Phase 3 (retired)      App stops writing canonical fields; legacy identifiers remain for history

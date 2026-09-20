@@ -196,7 +196,6 @@ Example projection (Worker app), from the brief:
 {
     "item_id": "itm_123",
     "article_number": "A-4932",
-    "name": "Stockholm Sofa",
     "category": "Furniture",
     "version": 17
 }

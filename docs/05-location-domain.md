@@ -69,7 +69,7 @@ Whether these are **types** of one `Location` concept or **levels** of a hierarc
 |---|---|
 | `CreateLocation { name, type, parent?, party? }` | Governance open (`OQ-LOC-05`). |
 | `RenameLocation`, `MoveLocation (change parent)` | If hierarchy adopted. |
-| `RetireLocation` | What happens to inventory positions at a retired location is open. |
+| `RetireLocation` | What happens to inventory positions at a retired location is open. Note that **items** have no retire operation at all (`OQ-ITEM-04` resolved) — whether Location should differ, or follow the same soft-delete-only rule, is a consistency decision for the design session. |
 
 ## Queries
 

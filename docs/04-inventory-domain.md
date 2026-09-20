@@ -1,7 +1,7 @@
 # 04 — Inventory Domain
 
 > **Question this domain answers:** *"How much of it exists operationally, and where?"*
-> **Status:** Initial design. Separation from Item is established; the operation set, quantity semantics and rules such as negative inventory are **open**.
+> **Status:** Initial design. Separation from Item is established and quantity is confirmed to be Inventory's sole responsibility; the operation set and rules such as negative inventory are **open**.
 
 ## Purpose
 
@@ -13,6 +13,8 @@ Inventory is deliberately **separate** from Item.
 | Facts that do not change when the thing moves | Facts that change every time the thing moves |
 
 Mixing them produces the classic mistakes: an `Item` record with a `location` column that is silently wrong the moment someone moves the thing, or a `quantity` that different applications overwrite without anyone knowing why.
+
+This split has a concrete consequence for duplicates: **there is no "merge items" operation.** If the business has more of a thing than the record says, that is a quantity fact — `receive` or `adjust` at a location — not surgery on the item record. Two item records are never fused into one. (Items can be soft-deleted in the Item Domain, but never retired or merged; see [01](01-item-domain.md).)
 
 The Inventory Domain exists to:
 
@@ -33,7 +35,7 @@ The brief states the preference explicitly: prefer meaningful inventory transiti
 
 | Not owned | Belongs to |
 |---|---|
-| What the item is (name, classification, dimensions, properties, identifiers) | [Item Domain](01-item-domain.md). Inventory holds only `item_id`. |
+| What the item is (classification, dimensions, properties, images, identifiers) | [Item Domain](01-item-domain.md). Inventory holds only `item_id`. |
 | What the location is (name, type, address, hierarchy) | [Location Domain](05-location-domain.md). Inventory holds only `location_id`. |
 | Who a supplier/customer is | [Party Domain](06-party-domain.md). Whether movements reference `party_id` is open (`OQ-INV-08`). |
 | Orders, sales transactions, pricing | Not assigned to a centralized domain. A `sell()` movement may *reference* an order via `reference_id` but does not own it. |
@@ -72,6 +74,14 @@ flowchart LR
     APP[Applications] -- receive / transfer / place / remove / sell / return / adjust --> MOV
 ```
 
+### Quantity is Inventory's alone
+
+The Item Domain never expresses multiplicity. It says *"this is a canonical identity for a thing"*; it never says how many of that thing exist. Whether one identity covers a single unique vintage piece or sixty homogeneous chairs is **invisible from inside the Item Domain and entirely Inventory's concern** (`INV-ITEM-14`, `INV-INV-09`).
+
+So `quantity` is an ordinary count, with no bound imposed from outside this domain. A unique vintage piece sits at quantity 1 — not because a rule caps it, but because there is only one of it. Sixty interchangeable chairs under one identity sit at 60.
+
+Note what this means for arrivals: thirty of those chairs reaching the warehouse changes **quantity and location here**, and changes nothing at all about the item's identity. Splitting four of them out into a separately identified set is a change of *identity*, which is the future "marriage / divorce" machinery and out of scope (see [01](01-item-domain.md) and `OQ-ITEM-07`).
+
 ### Positions and movements — proposed relationship
 
 **PROPOSED:** A position is the *consequence* of movements. Conceptually:
@@ -107,6 +117,7 @@ Full list in [11-invariants.md](11-invariants.md#inventory).
 - `INV-INV-01` — Inventory references items and locations by canonical ID; it never stores or defines what an item or location *is*.
 - `INV-INV-02` — Every inventory change has a traceable business cause: a movement with a type, a source application and a reference.
 - `INV-INV-03` (as principle) — Inventory is not changed by overwriting quantities; it is changed by recording movements.
+- `INV-INV-09` — Quantity is a count and is Inventory's sole responsibility; no other domain constrains it.
 
 **Proposed**
 
@@ -118,7 +129,6 @@ Full list in [11-invariants.md](11-invariants.md#inventory).
 **Open**
 
 - Whether a position may go negative (`OQ-INV-02`).
-- Whether quantity is always 0/1 (unique physical units) or arbitrary (product-level items) — depends on `OQ-ITEM-01` / `OQ-INV-01`.
 
 ## Commands / Operations
 
@@ -184,6 +194,7 @@ Whether both are needed, or one suffices, is for the design session (`OQ-EVT-01`
 |---|---|
 | Movement would make a position negative | **Open** (`OQ-INV-02`): reject, allow with flag, or allow for certain movement types. |
 | Unknown `item_id` or `location_id` | Rejected — mechanism open (`OQ-INV-06`). |
+| Movement for an item soft-deleted in the Item Domain | **Open.** Item deletion deliberately does not consult Inventory (`INV-ITEM-13`), so positions can outlive the item record. Whether Inventory should reject such movements depends on how it learns of deletion (`OQ-INV-06`, `OQ-ITEM-10`). |
 | Retried command with same idempotency key | Same result, no duplicate movement. |
 | Concurrent movements on the same position | Must serialize correctly; whether Inventory uses per-position versioning, per-item versioning or database-level serialization is for the design session. |
 | `transfer` with `from == to` | Rejected (proposed). |
@@ -193,6 +204,7 @@ Whether both are needed, or one suffices, is for the design session (`OQ-EVT-01`
 ## Established Decisions
 
 - Inventory is a separate domain from Item.
+- Quantity is a **count** and is Inventory's responsibility alone. The Item Domain never expresses multiplicity.
 - Item answers *what*; Inventory answers *where / how much*.
 - Conceptual model: `InventoryPosition` and `InventoryMovement`.
 - Inventory changes are expressed as meaningful transitions with a traceable cause, not quantity overwrites.
@@ -203,7 +215,7 @@ Whether both are needed, or one suffices, is for the design session (`OQ-EVT-01`
 
 See [12-open-questions.md — Inventory](12-open-questions.md#inventory).
 
-- `OQ-INV-01` — Quantity semantics: counts vs unique units (depends on `OQ-ITEM-01`).
+- `OQ-INV-01` — **RESOLVED:** quantity is a count, and it is Inventory's sole responsibility. One identity may cover many units.
 - `OQ-INV-02` — Negative inventory.
 - `OQ-INV-03` — Precise semantics of each operation, including from/to nullability and the `receive` vs `place` distinction.
 - `OQ-INV-04` — Reservations / allocations in scope?

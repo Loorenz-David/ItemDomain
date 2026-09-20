@@ -25,7 +25,7 @@ This document is deliberately short. Its main value is stating the boundary and 
 | Orders, invoices, payments | Not assigned to a centralized domain in this architecture. |
 | Locations belonging to a party | [Location Domain](05-location-domain.md) — a location may *reference* a party. |
 | Inventory held by / on behalf of a party | [Inventory Domain](04-inventory-domain.md) — open whether movements reference parties (`OQ-INV-08`). |
-| Items supplied by a party | [Item Domain](01-item-domain.md) — today only "supplier article number" exists, as an *identifier*, not a party link. Open (`OQ-PARTY-01`). |
+| Items supplied by a party | [Item Domain](01-item-domain.md) — today only "supplier article number" exists, as an *external identifier* (a value the supplier issued), not a party link. Open (`OQ-PARTY-01`). |
 | Application users / login identities / roles | Authorization concern (`OQ-AUTHZ-02`). A user who operates an application is not necessarily a Party. Do not conflate. |
 | Personal data handling policies | Must be decided before any person data is stored (`OQ-PARTY-04`). |
 
@@ -93,7 +93,7 @@ Party never references Item, Inventory or Location.
 
 ## Failure / Conflict Cases
 
-- Duplicate parties (same organization entered twice) — expected; needs a merge strategy eventually. Open.
+- Duplicate parties (same organization entered twice) — expected; needs a strategy eventually. Open. Note that **items** have no merge operation (`OQ-ITEM-04` resolved); whether Party should differ, or also forbid merging, is a consistency decision for the design session.
 - Referencing an unknown `party_id` from Location/Inventory — rejected; validation mechanism mirrors `OQ-INV-06`.
 
 ## Established Decisions
