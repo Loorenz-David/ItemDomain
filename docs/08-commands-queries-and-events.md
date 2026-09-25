@@ -1,7 +1,7 @@
 # 08 — Commands, Queries and Events
 
 > **Responsibility:** Define how state enters a domain (commands), how it is read (queries), and how changes leave it (events) — and the reliability guarantees around them.
-> **Status:** The pipeline shape, outbox and at-least-once semantics are **established**. Command granularity, event taxonomy, payload shape, ordering and transport are **open**.
+> **Status:** The pipeline shape, outbox and at-least-once semantics are **established**. Item command granularity, event taxonomy and payload shape are **resolved**. Ordering and transport are **open**.
 
 ## Purpose
 
@@ -52,7 +52,7 @@ A command is a request to change canonical state, expressed as **business intent
 - the target canonical ID;
 - the **expected version** of the target (optimistic concurrency, [09](09-versioning-concurrency-and-idempotency.md));
 - an **idempotency key** so retries do not duplicate operations;
-- the **acting application** (and, where relevant, the acting user — `OQ-AUTHZ-02`) for authorization and audit.
+- the **acting application** (known from its API key) and the **acting user's name as a snapshot** (`user_name_snapshot`) — not a user id, since external users are not the Item Domain's responsibility (`OQ-AUTHZ-02`).
 
 ### Command handling
 
@@ -78,9 +78,14 @@ Exact error contract is for the design session (`OQ-API-06`).
 | Item | `CreateItem`, `ClassifyItem`, `UpdateItemDimensions` / `UpdateItemWeight` (or `UpdateItem`), `SetItemProperty`, `RemoveItemProperty`, `AddItemIdentifier`, `RemoveItemIdentifier`; reference-data commands; lifecycle commands (open). |
 | Inventory | `receive`, `transfer`, `place`, `remove`, `sell`, `return`, `adjust` (semantics open). |
 | Location | `CreateLocation`, `RenameLocation`, `RetireLocation` (minimal). |
-| Party | `CreateParty`, `RenameParty` (minimal). |
+| Location (holders) | Customers, dealers and suppliers are locations with a polymorphic holder link — no Party commands for now. |
 
-Granularity — many fine-grained commands vs. one coarse `UpdateItem` carrying a partial document — is **open** (`OQ-API-02`). The trade-off: fine-grained commands map cleanly to events and authorization; coarse commands are simpler for form-based applications that edit many fields at once. Both can be offered; the decision affects the event taxonomy (`OQ-EVT-01`).
+**Granularity — RESOLVED (`OQ-API-02`): atomic services first, then an orchestrator.**
+
+- Each change is an **atomic service** with one responsibility: set dimensions, set weight, set `sku`, set a property, add an image, reorder images, …
+- An **orchestrating `UpdateItem`** accepts one big update (e.g. a whole form) and calls those atomic services in **one transaction**, with **one version bump**.
+
+The rules for each part live only in its atomic service; the orchestrator groups, it does not re-implement.
 
 ## Queries
 
@@ -92,10 +97,10 @@ A query reads canonical state without changing it. Queries are served by the dom
 
 | Domain | Queries |
 |---|---|
-| Item | Get item by id (full state incl. version); **resolve identifier → item_id**; list identifiers; get classification vocabulary; allowed property definitions for a type; search/filter (capabilities open, `OQ-API-04`); batch get. |
+| Item | Get item by id (full state incl. version); **resolve identifier → list of items**; list identifiers; get classification vocabulary; property definitions for a type; search/filter — type, category, property value (by name across types when no type is given), identifier value or prefix, deleted-or-not, paging and sorting; free text later (`OQ-API-04`); batch get. |
 | Inventory | Positions by item; positions by location; movement history; total per item. |
 | Location | Get by id; list; resolve location code (open). |
-| Party | Get by id; search by name. |
+| Location (holders) | List locations by `holder_type`. |
 
 ### Query vs projection
 
@@ -116,7 +121,13 @@ A domain event is a **fact that something already happened** to canonical state.
 
 Events are not commands in disguise: a domain never publishes "please do X" to applications.
 
-### Initial event taxonomy (examples, not final — `OQ-EVT-01`)
+### Event taxonomy — Item (`OQ-EVT-01`, `OQ-EVT-02` resolved)
+
+- **One event per atomic command** — `ItemDimensionsChanged`, `ItemSkuChanged`, `ItemImageAdded`, …
+- **The orchestrator silences them.** When `UpdateItem` runs several atomic services, their own events are **not** broadcast; the orchestrator broadcasts **one** event for the whole update, listing the parts that changed.
+- **Every event carries the full item after the change**, in addition to naming what changed. A consumer that missed an event overwrites its copy with the latest one.
+
+The list below is the initial one from the brief; exact names follow the atomic commands.
 
 From the brief, for Item:
 
@@ -131,7 +142,7 @@ From the brief, for Item:
 
 Proposed for other domains (not in the brief): `InventoryMovementRecorded`, `InventoryPositionChanged`, `LocationCreated/Changed/Retired`, `PartyCreated/Changed`, and reference-data events (`CategoryCreated`, `PropertyDefined`, …).
 
-Note the overlap between `ItemUpdated` and the fine-grained events. Two coherent options exist: (a) fine-grained events only, with `ItemUpdated` reserved for first-class attributes; (b) a single `ItemChanged` snapshot event plus optional fine-grained events. Choosing is `OQ-EVT-01`/`OQ-EVT-02`.
+`ItemUpdated` is the orchestrator's event: it names the parts that changed and carries the full item.
 
 ### Event envelope (proposed minimum)
 
@@ -142,8 +153,11 @@ occurred_at
 aggregate_type      ← Item | InventoryMovement | Location | Party
 aggregate_id        ← e.g. itm_123
 aggregate_version   ← version after this change (for ordering and idempotent apply)
-causation           ← command / idempotency key that caused it (for audit; content open)
-payload             ← delta or snapshot (OQ-EVT-02)
+causation           ← command / idempotency key that caused it
+source_id           ← the source that sent the command, from its API key
+user_name_snapshot  ← name of the person acting, as sent (OQ-AUTHZ-02)
+changed             ← the parts that changed (one for an atomic command, several for UpdateItem)
+payload             ← the full item after the change (OQ-EVT-02)
 schema_version      ← (OQ-EVT-06)
 ```
 
@@ -209,7 +223,7 @@ See [10-application-integration.md](10-application-integration.md) for per-appli
 
 1. Seller app wants to attach a new Shopify variant ID to `itm_123` (currently version 18).
 2. Seller sends `AddItemIdentifier { item_id: itm_123, expected_version: 18, namespace: shopify, identifier_type: variant_id, value: "999", idempotency_key: "seller-op-4471" }`.
-3. Item Domain: authorizes Seller; checks uniqueness rule (open); checks version 18 == 18; in one transaction writes the identifier, sets version 19, inserts `ItemIdentifierAdded { aggregate_id: itm_123, aggregate_version: 19, … }` into the outbox; commits.
+3. Item Domain: checks Seller's API key; checks the identifier type exists (the same value may already be on other items — `OQ-ID-01`); checks version 18 == 18; in one transaction writes the identifier, sets version 19, inserts `ItemIdentifierAdded { aggregate_id: itm_123, aggregate_version: 19, … }` into the outbox; commits.
 4. Response to Seller: `{ version: 19 }`.
 5. Seller's network drops before the response arrives; Seller retries with the same idempotency key → domain returns the stored outcome `{ version: 19 }`; nothing changes.
 6. Outbox relay publishes the event. Shopify integration worker receives it, updates its mapping. It receives it a second time → its projection is already at version 19 → ignored.
@@ -239,12 +253,12 @@ See [10-application-integration.md](10-application-integration.md) for per-appli
 See [12-open-questions.md — API](12-open-questions.md#api) and [— Events](12-open-questions.md#events).
 
 - `OQ-API-01` — Sync vs async command handling; protocol.
-- `OQ-API-02` — Command granularity.
+- `OQ-API-02` — **Resolved:** atomic services + orchestrating `UpdateItem`.
 - `OQ-API-03` — Bulk / batch operations.
-- `OQ-API-04` — Query and search capabilities.
+- `OQ-API-04` — **Resolved (minimum):** structured filters and paging; free text later.
 - `OQ-API-06` — Error contract.
-- `OQ-EVT-01` — Final event taxonomy (coarse vs fine).
-- `OQ-EVT-02` — Payload: delta vs snapshot.
+- `OQ-EVT-01` — **Resolved for items:** one event per command, silenced under the orchestrator's single event. Reference-data and other domains' events open.
+- `OQ-EVT-02` — **Resolved:** name what changed, carry the full item.
 - `OQ-EVT-03` — Per-aggregate ordering guarantee.
 - `OQ-EVT-04` — Transport / relay technology.
 - `OQ-EVT-05` — Replay / backfill for new consumers.

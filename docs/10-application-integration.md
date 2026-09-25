@@ -45,7 +45,7 @@ An application never:
 
 ## Per-application view
 
-The following is **illustrative** — it describes plausible roles based on the application names in the brief. Which commands each application actually issues, and whether it is even allowed to, is `OQ-AUTHZ-01` / `OQ-APP-04`.
+The following is **illustrative** — it describes plausible roles based on the application names in the brief. Which commands each application actually issues is `OQ-APP-04`. For now every registered application is *allowed* to issue every command (`OQ-AUTHZ-01`).
 
 | Application | Likely reads | Likely commands | Keeps for itself |
 |---|---|---|---|
@@ -54,6 +54,9 @@ The following is **illustrative** — it describes plausible roles based on the 
 | **Seller** | Item projection for listing preparation; identifiers (Shopify IDs); total availability from Inventory. | `AddItemIdentifier` (Shopify IDs, if Seller creates listings); possibly property edits. | `listing_state` (`draft`, `published`), channel-specific copy, campaign selections. |
 | **Scanner** | Identifier → `item_id` resolution; location resolution; positions at a location. | `transfer`, `place`, possibly `receive`. | Scan sessions, offline queue, device state. |
 | **Shopify / integration workers** | Identifier resolution; item projection for sync; availability. | `AddItemIdentifier`, `sell`, `return`; possibly property or image updates if Shopify is a source (open, `OQ-MIG-04`). | Sync cursors, webhook dedup state, per-channel mapping. |
+
+> **Shopify app proxy.** Shopify reaches the domains through a Shopify app proxy — a central system acting on behalf of the shops. Each shop is its own external application with its own source registration and API key, stored in the proxy and used for every request made for that shop (`OQ-ID-05`).
+
 
 ## Projections
 
@@ -147,5 +150,6 @@ See [12-open-questions.md — Application integration](12-open-questions.md#appl
 - `OQ-APP-02` — Query API vs projection on hot paths.
 - `OQ-APP-03` — Scanner offline / latency constraints for identifier resolution.
 - `OQ-APP-04` — Which application(s) create items.
-- `OQ-MIG-01` … `OQ-MIG-04` — Seeding, duplicate reconciliation, cut-over, Shopify role.
-- `OQ-AUTHZ-01` — Command permissions per application.
+- `OQ-MIG-01` … `OQ-MIG-03` — Seeding, duplicate reconciliation, cut-over.
+- `OQ-MIG-04` — **Resolved:** Shopify, like every connected app, both supplies and consumes item facts; the Item Domain is the only authority.
+- `OQ-AUTHZ-01` — **Resolved (for now):** apps authenticate with API keys (tracked in a key table); no per-app permissions yet — every app may do everything. A permission layer comes later.

@@ -81,7 +81,7 @@ The cost is accepted deliberately:
 The second is the point, not a defect — the alternative is silent divergence, which is what this architecture exists to prevent. Two practical consequences follow:
 
 1. **Applications need a re-read-and-retry path**, not a one-shot write. A conflict is an expected outcome on a busy item, not an exceptional error.
-2. **Command granularity now matters more** (`OQ-API-02`). A coarse `UpdateItem` that saves a whole form is one version bump; the equivalent fine-grained commands are many, each a fresh chance to conflict.
+2. **Command granularity matters** (`OQ-API-02`, resolved). The orchestrating `UpdateItem` saves a whole form in one transaction with one version bump; sending the atomic commands one by one means many bumps, each a fresh chance to conflict. Form-based apps should use `UpdateItem`.
 ### Is `expected_version` mandatory? (`OQ-CC-01`)
 
 Options:

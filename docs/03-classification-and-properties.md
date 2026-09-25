@@ -22,8 +22,8 @@ Instead, classification is explicit, and properties are **defined per classifica
 ## Owns
 
 - The classification vocabulary: `Category`, `ItemType`.
-- The presentational assets for that vocabulary: each `Category` and `ItemType` carries an `icon_url` and an `image_url`.
-- The property vocabulary: `PropertyDefinition` (name, data type, unit, required flag, constraints, and the classification it applies to).
+- The presentational assets for that vocabulary: each `Category` and `ItemType` carries one optional `icon_url`.
+- The property vocabulary: `PropertyDefinition` (name, data type, unit, required flag, constraints, and the item type it belongs to).
 - The assignment of property values to items: `ItemProperty`.
 - The **validation rules** that connect them.
 
@@ -34,7 +34,7 @@ All of this is owned by the **Item Domain** — classification is not a separate
 | Not owned | Belongs to |
 |---|---|
 | Workflow-relevant attributes such as "photographed", "priced", "listed" | Applications. These are process facts, not properties of the thing. |
-| Sales copy / marketing descriptions per channel | **Open** (`OQ-PROP-06`). A Shopify listing title written for a campaign is channel-specific. Note the item has no canonical `name` (`OQ-ITEM-02` resolved), so if any descriptive text is to be canonical it must be a property. Do not assume. |
+| Sales copy — listing titles and descriptions | The sales channel (Seller/Shopify) (`OQ-PROP-06`). Users may define a `title` property on a type if they want one; that is their vocabulary choice, not a system field. |
 | Pricing attributes | Not assigned to any centralized domain in this architecture. |
 | Inventory-related attributes (quantity, location) | [Inventory](04-inventory-domain.md) |
 | Application-specific tags, labels, filters | Applications |
@@ -45,24 +45,25 @@ All of this is owned by the **Item Domain** — classification is not a separate
 Category
     id
     name
-    icon_url             ← small presentational asset (navigation, filters, chips)
-    image_url            ← larger presentational asset (headers, cards)
+    icon_url             ← optional presentational asset; none when missing (OQ-IMG-07)
 
 ItemType
     id
-    category_id          ← an item type belongs to exactly one category (proposed)
+    category_id          ← an item type belongs to exactly one category (confirmed, INV-CLS-03);
+                           this is the only place an item's category is stored (OQ-CLS-05)
     name
-    icon_url
-    image_url
+    icon_url             ← same name and rules as on Category
 
 PropertyDefinition
     id
-    category_id and/or item_type_id   ← the scope in which the property applies (precedence open, OQ-PROP-01)
-    name                              ← e.g. material, seat_count, bulb_type
-    data_type                         ← e.g. string, number, boolean, enum … (supported set open, OQ-PROP-02)
+    item_type_id                      ← definitions live only on item types (OQ-PROP-01)
+    name                              ← e.g. material, seat_count, bulb_type; unique within the type
+    data_type                         ← text | whole_number | decimal | boolean | choice (OQ-PROP-02)
+    choices                           ← for data_type = choice: the list of values a user can pick from
+    multiple                          ← for data_type = choice: whether several values may be picked (default: one)
     unit                              ← e.g. cm, kg, W (nullable)
-    required                          ← whether an item of this classification must carry a value
-    constraints                       ← e.g. allowed values, min/max, pattern
+    required                          ← whether an item of this type must carry a value
+    constraints                       ← e.g. min/max, pattern
 
 ItemProperty
     item_id
@@ -82,7 +83,8 @@ flowchart LR
     T3 --> P4[bulb_type]
     T3 --> P5[wattage]
     T3 --> P6[socket_type]
-    C --> P7["color (category-level, applies to all furniture) — illustrative"]
+    T1 --> P7["color (Sofa's own list)"]
+    T2 --> P8["color (Table's own list — a separate definition)"]
 ```
 
 Examples from the brief:
@@ -94,20 +96,21 @@ Examples from the brief:
 
 ### Presentational assets on the vocabulary
 
-`Category` and `ItemType` each carry an `icon_url` (small — navigation, filters, chips) and an `image_url` (larger — headers, cards).
+`Category` and `ItemType` each carry one `icon_url`, named the same on both. It is optional: when missing, the API returns none, and each application decides what to draw instead (`OQ-IMG-07`).
 
 These are presentation, which might look like application territory. They belong here for the same reason the vocabulary itself does: if each application picked its own icon for "Furniture", the same category would look like a different thing in the Manager app, the Seller app and the Scanner. The icon is part of what the category *is* to the business, so it lives with the category and every application renders the same one.
 
-Note the contrast with item images. An item's images are *evidence of what that specific thing looks like*; a category's icon is *a label for a concept*. Both are canonical, for different reasons. Open questions on mandatory-ness and fallbacks: `OQ-IMG-07`.
+Note the contrast with item images. An item's images are *evidence of what that specific thing looks like*; a category's icon is *a label for a concept*. Both are canonical, for different reasons. Mandatory-ness and fallbacks: resolved in `OQ-IMG-07`.
 
 ### How validation works (conceptual)
 
-For an item classified as `(category_id, item_type_id)`, the set of **allowed property definitions** is:
+An item stores only its `item_type_id`; its category is `item_type.category_id`. The set of **allowed property definitions** is:
 
 ```
-allowed(item) = definitions scoped to item.item_type_id
-              ∪ definitions scoped to item.category_id      (if category-level definitions are adopted)
+allowed(item) = the property definitions of item.item_type_id
 ```
+
+Definitions live only on item types, so `Sofa.color` and `Table.color` are separate definitions, each with its own choices. Picking a type gives a form exactly that type's definitions. **Searching by property name without a type searches every definition with that name** — so consistent naming across types (`color`, not sometimes `colour`) is what makes such a search work.
 
 Because an item can never be unclassified (`INV-ITEM-09`), `allowed(item)` is always well-defined — there is no "not classified yet" edge case for validation to handle.
 
@@ -115,18 +118,45 @@ Then:
 
 1. Every `ItemProperty` on the item must reference a definition in `allowed(item)`. (`INV-CLS-01`, confirmed)
 2. Every `ItemProperty.value` must satisfy its definition's `data_type` and `constraints`. (`INV-CLS-02`, confirmed)
-3. Every definition in `allowed(item)` with `required = true` must have a value — **when** this is enforced (at creation? at classification? at "completion"?) is open (`OQ-PROP-03`, `OQ-ITEM-06`).
+3. Every definition in `allowed(item)` with `required = true` must have a value — enforced at creation and on every write (`OQ-ITEM-06`, `OQ-PROP-03`).
 
-The precedence when a property is defined at both category and item-type level (e.g. `color` on Furniture and a narrower `color` enum on Sofa) is open (`OQ-PROP-01`).
+These rules are checked on **writes**. When a later definition change makes an existing item non-conforming, the item is not rejected retroactively; it appears in the **resolution list** (see *Non-conforming items* below).
+
 
 ### Reference data vs item data
 
 | Kind | Entities | Lifecycle |
 |---|---|---|
-| **Reference data** (vocabulary) | `Category`, `ItemType`, `PropertyDefinition` | Changes rarely; changes affect *all* items of that classification; governed by someone (open, `OQ-CLS-02`). |
+| **Reference data** (vocabulary) | `Category`, `ItemType`, `PropertyDefinition` | Changes rarely; changes affect *all* items of that classification. **Any application or user may change it**; every change is recorded in the polymorphic history table (`OQ-CLS-02`). |
 | **Item data** | `Item`, `ItemProperty`, `ItemIdentifier`, `ItemImage` | Changes per item; guarded by the item's version. |
 
-Changing reference data is a **different kind of operation** from changing an item and should be treated as such by the API and by authorization.
+Changing reference data is a **different kind of operation** from changing an item and should be treated as such by the API.
+
+### Changing item types
+
+| Change | What happens |
+|---|---|
+| **Rename a type** | Only the type changes. Items point at it by id, so no item is touched; an event tells applications to update their cached name. |
+| **Change a type's property definitions** | The definition changes and applications are told. Items that no longer conform appear in the resolution list (below). |
+| **Create a type** | Items can then be created with it, or moved to it. |
+| **Delete a type that still has items** | The delete request **must name the type the items move to** — an item always has a type. The items move in the same operation and take on the new type's definitions. |
+| **Change one item's type** | Allowed; the same move, for one item. |
+
+**Property values on a move (`OQ-CLS-03`).** Definitions belong to types, so no value carries over by itself:
+
+1. A value **carries over** when the new type has a definition with the **same name** and the value is valid for it (`red` moves if the new colour list contains `red`).
+2. Every other value is **recorded in the polymorphic history table and removed** from the item.
+3. An item missing a value the new type **requires** goes to the **resolution list** — the move is never blocked. Deleting a type with 200 items therefore cannot fail over one missing value.
+
+### Non-conforming items
+
+A definition change — a property becoming `required`, a tightened constraint — can leave existing items that no longer conform. That is allowed (`OQ-PROP-03`). Instead of rejecting the change or hiding the problem, the Item Domain offers a **dedicated set of endpoints and services** to:
+
+- **list** the items that no longer conform to their definitions;
+- **see** an item and what exactly is wrong with it;
+- **resolve** it (set the missing value, correct the out-of-range one).
+
+A definition change thereby becomes a prompt for people to re-evaluate the items it concerns. How the list is computed, and whether other writes to a non-conforming item are allowed meanwhile, are small open points in `OQ-PROP-03`.
 
 ## Invariants
 
@@ -144,10 +174,10 @@ Full list in [11-invariants.md](11-invariants.md#classification-and-properties).
 - `INV-CLS-05` — Required properties must be present **at creation**; an item cannot be created missing one. (`OQ-ITEM-06` resolved.)
 - `INV-CLS-06` — A `PropertyDefinition` cannot be deleted while items carry values for it (deprecate instead).
 
-**Open**
+**Also confirmed**
 
-- What happens to properties that become illegal after reclassification (`OQ-CLS-03`).
-- Whether properties without a definition are ever permitted (`OQ-PROP-04`).
+- `INV-CLS-08` — Reclassification: same-named valid values carry over, the rest go to history, missing required values go to the resolution list (`OQ-CLS-03`).
+- `INV-CLS-10` — An item never carries a property without a definition (`OQ-PROP-04`).
 
 ## Commands / Operations
 
@@ -155,18 +185,21 @@ Full list in [11-invariants.md](11-invariants.md#classification-and-properties).
 
 | Command (conceptual) | Validation |
 |---|---|
-| `ClassifyItem { item_id, category_id, item_type_id }` | Type belongs to category. Existing properties re-validated (`OQ-CLS-03`). |
+| `ClassifyItem { item_id, item_type_id }` | Item type exists; category follows from it. Property values carried over, removed or sent to the resolution list as described above (`OQ-CLS-03`). |
 | `SetItemProperty { item_id, property_definition_id (or name), value }` | Definition in `allowed(item)`; value satisfies data type/constraints. |
 | `RemoveItemProperty { item_id, property_definition_id }` | If `required`, behaviour open (reject vs allow-incomplete). |
 
-**On reference data** (governance open, `OQ-CLS-02`):
+**On reference data** (any application or user; every change recorded in the polymorphic history table — `OQ-CLS-02`):
 
 | Command (conceptual) | Notes |
 |---|---|
 | `CreateCategory`, `RenameCategory` | |
 | `CreateItemType { category_id, name }` | |
-| `DefineProperty { scope, name, data_type, unit, required, constraints }` | |
-| `ChangePropertyDefinition` | **Dangerous**: tightening constraints or adding `required` can invalidate existing items. Policy open (`OQ-PROP-03`). |
+| `RenameItemType` | Touches no item; applications update cached names. |
+| `DeleteItemType { item_type_id, move_items_to }` | Required target when the type has items; items move in the same operation (`OQ-CLS-03`). |
+| Moving an `ItemType` to another category | **Recategorises every item of that type** at once, with no item version bump or item event, because items derive their category from their type. Whether this is allowed is governance (`OQ-CLS-02`). |
+| `DefineProperty { item_type_id, name, data_type, choices?, multiple?, unit, required, constraints }` | Name unique within the type. |
+| `ChangePropertyDefinition` | Allowed. Tightening constraints or adding `required` can make existing items non-conforming; they then appear in the resolution list (`OQ-PROP-03`). |
 | `DeprecatePropertyDefinition` | Proposed alternative to deletion. |
 
 ## Queries
@@ -218,9 +251,12 @@ Full list in [11-invariants.md](11-invariants.md#classification-and-properties).
 |---|---|
 | Property not allowed for classification | Validation error. |
 | Value violates data type / constraints | Validation error. |
-| Item type does not belong to category | Validation error (`INV-CLS-03`, proposed). |
-| Reclassification invalidates properties | Open (`OQ-CLS-03`). |
-| Reference-data change invalidates existing items | Open (`OQ-PROP-03`). Options include: reject the change; allow and flag items as incomplete; version the definitions. |
+| Unknown item type | Validation error. (Type/category disagreement cannot occur: the item stores no category, `OQ-CLS-05`.) |
+| Reclassification leaves values the new type doesn't define | Recorded in the history table and removed (`OQ-CLS-03`). |
+| Reclassification leaves a required value missing | Item goes to the resolution list; the move succeeds. |
+| Deleting a type with items without naming a target type | Rejected. |
+| Several values picked for a single-choice property, or for a non-choice property | Validation error (`OQ-PROP-02`). |
+| Reference-data change makes existing items non-conforming | Change **accepted**; the items appear in the resolution list for users to fix (`OQ-PROP-03`). |
 | Concurrent property edits on the same item | Version conflict on the item (if properties are inside the aggregate — `OQ-ITEM-05`). |
 | Deleting a definition in use | Rejected (`INV-CLS-06`, proposed). |
 
@@ -231,6 +267,7 @@ Full list in [11-invariants.md](11-invariants.md#classification-and-properties).
 - There is **no** giant item table with every possible property column; properties are definition-driven.
 - The conceptual model consists of `Category`, `ItemType`, `PropertyDefinition`, `ItemProperty`.
 - The system must be able to validate whether a property is legal for a particular item.
+- An item stores only its `item_type_id`; its category is derived from the item type (`OQ-CLS-05`).
 - Exact persistence/schema design is **not** finalized.
 
 ## Open Questions
@@ -238,12 +275,12 @@ Full list in [11-invariants.md](11-invariants.md#classification-and-properties).
 See [12-open-questions.md — Classification](12-open-questions.md#classification) and [— Properties](12-open-questions.md#properties).
 
 - `OQ-CLS-01` — Is the hierarchy fixed at two levels (Category → ItemType)?
-- `OQ-CLS-02` — Who governs reference data, through what interface?
-- `OQ-CLS-03` — Reclassification semantics for now-illegal properties.
-- `OQ-CLS-05` — Is `item.category_id` redundant given `item_type.category_id`?
-- `OQ-PROP-01` — Precedence between category-level and item-type-level definitions.
-- `OQ-PROP-02` — Supported data types; multi-valued properties; enums.
-- `OQ-PROP-03` — Evolution of definitions and the effect on existing items; when `required` is enforced.
-- `OQ-PROP-04` — Are undefined ("free-form") properties ever permitted?
+- `OQ-CLS-02` — **Resolved:** anyone (apps or users); every change recorded in the polymorphic history table.
+- `OQ-CLS-03` — **Resolved:** see *Changing item types*.
+- `OQ-CLS-05` — **Resolved:** yes, redundant. The item stores no `category_id`.
+- `OQ-PROP-01` — **Resolved:** definitions live only on item types.
+- `OQ-PROP-02` — **Resolved:** text, whole number, decimal, boolean, choice list (one or several picks).
+- `OQ-PROP-03` — **Resolved:** changes allowed; non-conforming items are listed, shown and resolved through dedicated endpoints.
+- `OQ-PROP-04` — **Resolved:** no; every value belongs to a definition of the item's type.
 - `OQ-PROP-05` — Localization of names/values.
-- `OQ-PROP-06` — Which descriptive attributes are canonical vs channel-specific sales copy.
+- `OQ-PROP-06` — **Resolved:** no canonical title/description; channel copy belongs to the channel.

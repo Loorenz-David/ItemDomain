@@ -1,7 +1,7 @@
 # 07 — Domain Boundaries and Ownership
 
 > **Responsibility:** Explain *why* the boundaries are where they are, who owns which facts, which direction references may point, and the single rule that makes all of it enforceable: **no application writes to a domain's database.**
-> **Status:** The boundaries and the data-ownership rule are **established**. Reference directions to Party are open.
+> **Status:** The boundaries and the data-ownership rule are **established**. **Party is not built for now** (`OQ-LOC-03`): outside holders of stock are locations with a polymorphic link to their record.
 
 ## Purpose
 
@@ -38,7 +38,7 @@ flowchart TB
         ITEM[Item]
         INV[Inventory]
         LOC[Location]
-        PARTY[Party]
+        PARTY["Party (not built for now)"]
     end
 
     APPS -- "commands / queries by canonical id" --> DOMAINS
@@ -46,9 +46,7 @@ flowchart TB
 
     INV -- "item_id" --> ITEM
     INV -- "location_id" --> LOC
-    LOC -. "party_id (proposed)" .-> PARTY
-    INV -. "party_id (open)" .-> PARTY
-    ITEM -. "supplier party_id (open)" .-> PARTY
+    LOC -. "holder_type + external identifier (polymorphic)" .-> HOLDERS["customer / dealer / supplier records (OQ-LOC-07)"]
 ```
 
 ### Reference direction rules
@@ -57,9 +55,9 @@ flowchart TB
 |---|---|---|
 | Inventory → Item (`item_id`) | CONFIRMED | Inventory holds only the ID. |
 | Inventory → Location (`location_id`) | CONFIRMED | |
-| Location → Party (`party_id`) | PROPOSED | For dealer/customer locations. |
-| Inventory → Party | OPEN | `OQ-INV-08` |
-| Item → Party | OPEN | `OQ-PARTY-01` |
+| Location → holder record (`holder_type` + an external identifier) | CONFIRMED | Polymorphic link from a customer / dealer / supplier location to its record. The records stay in their own system; the location stores the kind of holder, the record's id as an external identifier, and name/address snapshots (`OQ-LOC-07`). Replaces the proposed `party_id`. |
+| Inventory → Party | NONE | `OQ-INV-08`: Inventory points only at locations; customers, dealers and suppliers are locations. |
+| Item → Party | NONE | No Party domain for now. |
 | Item → Inventory | **FORBIDDEN** | Item never knows where or how much. |
 | Item → Location | **FORBIDDEN** | Same. |
 | Location → Inventory / Item | **FORBIDDEN** | Location does not know what is at it. |
@@ -78,7 +76,7 @@ A reference is always **by canonical ID**. A domain never copies another domain'
 | `item_id` | **owns** | refs | | | refs |
 | category / item type / properties / dimensions / weight | **owns** | | | | projects |
 | `article_number`, `sku` (canonical business identity) | **owns** the guarantee | | | | supply the values |
-| external identifiers (Shopify IDs, legacy app IDs, supplier article numbers) | **owns** | | | | supplies / projects |
+| external identifiers (Shopify IDs, legacy app IDs, other foreign IDs) | **owns** | | | | supplies / projects |
 | classification reference data | **owns** | | | | projects |
 | quantity per item per location | | **owns** | | | projects |
 | movement history | | **owns** | | | refs by `reference_id` |
@@ -86,7 +84,7 @@ A reference is always **by canonical ID**. A domain never copies another domain'
 | `party_id`, party name/kind | | open | refs (proposed) | **owns** | refs / projects |
 | workflow state, task state, listing state, UI state | | | | | **owns** |
 | local projections of any of the above | | | | | **owns** (as cache) |
-| item images (URL references + storage `type`) | **owns** | | | | upload the files, supply the URLs |
+| item images (URL references + position and storage information) | **owns** | | | | upload the files, supply the URLs |
 | orders, prices | *not assigned in this architecture — see open questions* | | | | |
 
 ## The canonical-vs-workflow test
@@ -161,7 +159,7 @@ If even one application writes directly, none of these can be trusted, because t
 
 ## Reference data ownership
 
-`Category`, `ItemType`, `PropertyDefinition` are owned by the **Item Domain**. Locations' type vocabulary by **Location**. Movement types by **Inventory**. *Governance* — which application or role may change them — is open (`OQ-CLS-02`, `OQ-LOC-05`, `OQ-AUTHZ-03`), but ownership is not: the vocabulary lives in the domain, is changed through its API, and is published to applications, never the other way around.
+`Category`, `ItemType`, `PropertyDefinition` are owned by the **Item Domain**. Locations' type vocabulary by **Location**. Movement types by **Inventory**. *Governance*: the Item vocabulary may be changed by any application or user, with every change recorded in the polymorphic history table (`OQ-CLS-02`); for location and movement types it is open (`OQ-LOC-05`, `OQ-AUTHZ-03`), but ownership is not: the vocabulary lives in the domain, is changed through its API, and is published to applications, never the other way around.
 
 ## Established Decisions
 
@@ -174,7 +172,7 @@ If even one application writes directly, none of these can be trusted, because t
 
 ## Open Questions
 
-- `OQ-PARTY-01`, `OQ-INV-08` — Which references to Party are needed, and from where.
+- `OQ-LOC-08` — Which location types count as "we have it".
 - `OQ-API-05` — Direct read access to domain databases (proposed: prohibited).
 - `OQ-OPS-03` — Deployment topology (separate processes vs modular deployable with separate persistence).
 - `OQ-INV-05` — Where "condition" of a physical unit belongs.

@@ -37,7 +37,7 @@ The brief states the preference explicitly: prefer meaningful inventory transiti
 |---|---|
 | What the item is (classification, dimensions, properties, images, identifiers) | [Item Domain](01-item-domain.md). Inventory holds only `item_id`. |
 | What the location is (name, type, address, hierarchy) | [Location Domain](05-location-domain.md). Inventory holds only `location_id`. |
-| Who a supplier/customer is | [Party Domain](06-party-domain.md). Whether movements reference `party_id` is open (`OQ-INV-08`). |
+| Who a dealer/supplier/customer is | Not Inventory. Inventory only points at **locations**; a customer, dealer or supplier is a location with a polymorphic link to its record ([05](05-location-domain.md)). |
 | Orders, sales transactions, pricing | Not assigned to a centralized domain. A `sell()` movement may *reference* an order via `reference_id` but does not own it. |
 | Application workflow around movements (a picking task, a scan session) | Applications. They issue Inventory commands when their workflow reaches the relevant step. |
 | Reservations / allocations ("sold but not yet shipped") | **Open** (`OQ-INV-04`). Not in the initial model; do not assume. |
@@ -102,17 +102,19 @@ The brief lists these; their precise semantics are **not** defined and are colle
 | `place()` | Stock that exists is put at a specific location (e.g. after receiving to an "inbound" area). | ? | location |
 | `transfer()` | Stock moves between two known locations. | location | location |
 | `remove()` | Stock leaves without a sale (scrapped, lost, written off). | location | ∅ |
-| `sell()` | Stock leaves because it was sold. | location | ∅ (or a "sold"/customer location?) |
-| `return()` | Sold stock comes back. | ∅ (or customer location?) | location |
+| `sell()` | Stock was sold. | location | the **customer's location** (`OQ-LOC-03`) |
+| `return()` | Sold stock comes back. | the customer's location | location |
 | `adjust()` | Correction with an explicit reason (stock-take difference). Escape hatch — must carry a reason. | location | location or ∅ |
 
-The difference between `receive` and `place`, whether `sell` targets a customer *location* (which would tie Location and Party together) or simply a sink, and what `reference_id` points to for each type — all open.
+The difference between `receive` and `place`, (`sell` targets the customer's location — decided, `OQ-LOC-03`), and what `reference_id` points to for each type — all open.
 
 ## Invariants
 
 Full list in [11-invariants.md](11-invariants.md#inventory).
 
 **Confirmed**
+
+- `INV-INV-13` — Inventory records only stock the business owns or has sold; wanted-but-not-owned pieces belong to the wish-list application. "Do we have it?" follows from a fixed mapping of location types (`OQ-LOC-08`).
 
 - `INV-INV-01` — Inventory references items and locations by canonical ID; it never stores or defines what an item or location *is*.
 - `INV-INV-02` — Every inventory change has a traceable business cause: a movement with a type, a source application and a reference.
@@ -167,7 +169,7 @@ Whether both are needed, or one suffices, is for the design session (`OQ-EVT-01`
 |---|---|
 | **Item** | Inventory → Item by `item_id`. Item never references Inventory. Inventory does not react to most Item events; it may need `ItemCreated`/retirement events if it validates item existence locally (`OQ-INV-06`). |
 | **Location** | Inventory → Location by `location_id`. Inventory needs to know locations exist and possibly their type (can stock be *at* a "customer location"?) — open (`OQ-LOC-03`, `OQ-LOC-04`). |
-| **Party** | Not established. `sell()`/`return()`/`receive()` may want a `party_id` (customer, supplier). Open (`OQ-INV-08`, `OQ-PARTY-01`). |
+| **Party** | None — there is no Party domain for now. Stock with a customer, dealer or supplier is stock at a location of that type (`OQ-INV-08`, `OQ-LOC-03`). |
 | **Applications** | Worker and Scanner are the most likely command sources; Seller/Shopify likely trigger `sell()`/`return()`; Manager reads history and issues `adjust()`. Authorization per application is open (`OQ-AUTHZ-01`). |
 
 ## Example Flow
@@ -222,5 +224,5 @@ See [12-open-questions.md — Inventory](12-open-questions.md#inventory).
 - `OQ-INV-05` — Stock condition/state (damaged, quarantine): a location, a status, or out of scope?
 - `OQ-INV-06` — How Inventory validates `item_id` / `location_id` existence.
 - `OQ-INV-07` — Idempotency key for movements.
-- `OQ-INV-08` — Ownership/consignment and party references on movements.
+- `OQ-INV-08` — **Resolved:** Inventory points only at locations; customers, dealers and suppliers are locations. Selling a piece moves it to the customer's location.
 - `OQ-INV-09` — Stored positions vs derived-from-movements.

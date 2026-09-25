@@ -1,13 +1,17 @@
 # 06 — Party Domain
 
+> **⚠ Not built for now (`OQ-LOC-03`, option A2).** Outside holders of stock — customers, dealers, suppliers — are represented as **locations** with a polymorphic link to their record ([05](05-location-domain.md)). This document is kept as the record of the concept, in case a shared identity for people and organisations is needed later. Nothing else in the package depends on it.
+
 > **Question this domain answers:** *"What person / organization / business entity is being referenced?"*
-> **Status:** Deliberately immature. Identity only. **Not a CRM.** Whether any centralized domain needs it in the first implementation phase is itself open.
+> **Status:** Deliberately immature. Identity only. **Not a CRM.** **Needed in phase 1, for Inventory** (`OQ-PARTY-01`): stock held by dealers or suppliers, and items sold to customers.
 
 ## Purpose
 
 When the centralized domains need to refer to a person or organization — a supplier an item came from, a customer an item was sold to, a dealer holding stock — they need a canonical identity to refer to, for the same reason Item and Location exist: otherwise every application invents its own supplier/customer records and nothing can be joined.
 
 The Party Domain provides that identity **and nothing more** until real requirements appear.
+
+**Why it is needed now (`OQ-PARTY-01`).** Inventory will answer: *do we have this item? If yes, where? If not, is it with a dealer or a supplier (arrange delivery), or at a customer (sold)?* **Locations** are places the company owns; **parties** are entities outside that ownership that the company coordinates with, or whose holdings it has to understand. How Inventory records stock held by a party is open (`OQ-INV-08`, `OQ-LOC-03`). The Item Domain holds no party reference.
 
 This document is deliberately short. Its main value is stating the boundary and listing what is not yet known.
 
@@ -25,7 +29,7 @@ This document is deliberately short. Its main value is stating the boundary and 
 | Orders, invoices, payments | Not assigned to a centralized domain in this architecture. |
 | Locations belonging to a party | [Location Domain](05-location-domain.md) — a location may *reference* a party. |
 | Inventory held by / on behalf of a party | [Inventory Domain](04-inventory-domain.md) — open whether movements reference parties (`OQ-INV-08`). |
-| Items supplied by a party | [Item Domain](01-item-domain.md) — today only "supplier article number" exists, as an *external identifier* (a value the supplier issued), not a party link. Open (`OQ-PARTY-01`). |
+| Items supplied by a party | Not recorded. The Item Domain holds no party reference (`OQ-PARTY-01`). |
 | Application users / login identities / roles | Authorization concern (`OQ-AUTHZ-02`). A user who operates an application is not necessarily a Party. Do not conflate. |
 | Personal data handling policies | Must be decided before any person data is stored (`OQ-PARTY-04`). |
 
@@ -88,7 +92,7 @@ Party never references Item, Inventory or Location.
 ## Example Flow (illustrative only)
 
 1. Manager records a new supplier: `CreateParty { kind: organization, name: "Nordic Furniture AB" }` → `pty_771`.
-2. If — and only if — the Item Domain gains a supplier reference (`OQ-PARTY-01`), items from that supplier carry `supplier_party_id: pty_771`.
+2. Inventory can then record stock held by that supplier, or an item sold to a customer, against the party (mechanism open, `OQ-INV-08`). The Item Domain carries no supplier reference (`OQ-PARTY-01`).
 3. If a dealer location is modelled, `Location { type: customer_site, party_id: pty_771 }` links the place to the organization.
 
 ## Failure / Conflict Cases
@@ -106,8 +110,8 @@ Party never references Item, Inventory or Location.
 
 See [12-open-questions.md — Party](12-open-questions.md#party).
 
-- `OQ-PARTY-01` — Which centralized-domain references to parties are actually needed in phase 1? (If none, Party can be deferred entirely.)
+- `OQ-PARTY-01` — **Resolved:** needed in phase 1 for Inventory (dealers, suppliers, customers); not referenced by Item.
 - `OQ-PARTY-02` — Kinds vs roles; can a party hold several roles?
-- `OQ-PARTY-03` — External identifiers for parties (Shopify customer ID, supplier numbers).
+- `OQ-PARTY-03` — External identifiers for parties (e.g. Shopify customer ID).
 - `OQ-PARTY-04` — Personal data / privacy requirements before any person data is stored.
 - `OQ-PARTY-05` — Relationship between application users and parties.
