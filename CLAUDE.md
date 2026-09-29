@@ -8,7 +8,7 @@ An **architecture documentation package** (no code yet) for a set of centralized
 - `docs/README.md` — technical entry point and documentation map.
 - `docs/01`–`10` — one topic each (item, identifiers, classification, inventory, location, party, boundaries, commands/events, versioning, app integration).
 - `docs/11-invariants.md` — all rules (`INV-*`), each CONFIRMED / PROPOSED / OPEN.
-- `docs/12-open-questions.md` — every decision (`OQ-*`) with timing. Its header text ("Nothing here is answered") is outdated: many entries are RESOLVED.
+- `docs/12-open-questions.md` — every decision (`OQ-*`) with timing. Many entries are RESOLVED (question struck through, answer kept); the rest are open.
 
 ## Rules when answering
 1. **Respect the status markers — read the entry body, not just the heading.** CONFIRMED / RESOLVED = decided; a qualified label ("RESOLVED (for now)", "(mechanism)", "(minimum)") is decided only within that scope; a "Still open" line inside a RESOLVED entry is undecided; PROPOSED = starting direction; OPEN = undecided; "Deferred" = intentionally postponed; WITHDRAWN (doc 11) = reversed, never reintroduce. Never present an OPEN item as decided. Cite the `OQ-*` / `INV-*` number when relevant.

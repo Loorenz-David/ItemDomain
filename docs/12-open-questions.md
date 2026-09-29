@@ -1,6 +1,6 @@
 # 12 — Open Questions
 
-> **Purpose:** Every architectural decision that still has to be made, discovered while formalizing the architecture. Nothing here is answered; where the documents propose a default, it is labelled as a proposal and the question stays open until explicitly decided.
+> **Purpose:** Every architectural decision discovered while formalizing the architecture, and its status. Entries marked **RESOLVED** have been decided — the question is kept, struck through, with its answer, so the decision trail survives. Entries without that marker are still open; where the documents propose a default, it is labelled as a proposal and the question stays open until explicitly decided. A "Still open" line inside a RESOLVED entry marks a remaining sub-question.
 >
 > **Timing legend:** **Before implementation** = must be decided before the affected component is built, because the answer changes its shape. **Deferrable** = can be decided later without rework, provided the initial design does not foreclose it.
 
@@ -46,7 +46,7 @@ Each entry: **Decision** · **Why it matters** · **Affects** · **Timing**.
 ### OQ-ITEM-06 — Mandatory fields at creation — **RESOLVED**
 - **Decision:** ~~What must be present to create an item?~~
 - **Answer:** `article_number`, `item_type` (which determines the category — `OQ-CLS-05`), and all **required properties** for that classification. **Nothing else is mandatory.**
-- **Consequence for `OQ-PROP-03`:** required properties are enforced **at creation**, which settles the "when" half of that question — and *sharpens* the other half rather than softening it. An item created legitimately before a property definition became `required` would be retroactively invalid, and nothing yet says what happens then.
+- **Consequence for `OQ-PROP-03`:** required properties are enforced **at creation**, which settles the "when" half of that question — and *sharpens* the other half rather than softening it. An item created before a property definition became `required` no longer conforms. **`OQ-PROP-03` answers what happens:** it is not rejected retroactively; it appears in the list of non-conforming items, where users see what is wrong and fix it (`INV-CLS-12`).
 - **Consequence for dimensions and weight:** universal canonical attributes (`OQ-ITEM-03`) but **not** mandatory at creation — the Worker measures the piece after intake. They are nullable at creation and filled in later, the same shape as `sku`. Do not make them `NOT NULL`.
 - **Note:** the category is not a separate input. The item type determines it, and `item.category_id` is not stored (`OQ-CLS-05` resolved).
 ### OQ-ITEM-07 — Item-to-item relationships — **RESOLVED**
