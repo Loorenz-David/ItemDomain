@@ -462,4 +462,4 @@ Nothing that changes the Item Domain's shape. Small details that can be settled 
 - `OQ-ID-06` — History of removed external identifiers.
 - `OQ-IMG-02` / `03` — Image role, alt text. Background re-check of image URLs (`OQ-IMG-04`).
 
-**Resolved** — `OQ-ITEM-01` … `10` (mechanism, incl. restore), `12`, `13` (wish list lives in its own app); `OQ-CID-01` … `05`; `OQ-ID-01` … `05`, `07` (prefix), `08` … `10`; `OQ-CLS-02`, `03`, `05`; `OQ-PROP-01` … `04`, `06`; `OQ-IMG-01`, `05`, `06`, `07`; `OQ-API-02`, `04`; `OQ-EVT-01` (items), `02`; `OQ-AUTHZ-01`, `02`; `OQ-PARTY-01`; `OQ-MIG-04`.
+**Resolved** — `OQ-ITEM-01` … `10` (mechanism, incl. restore), `12`, `13` (wish list lives in its own app); `OQ-CID-01` … `05`; `OQ-ID-01` … `05`, `07`, `08` … `10`; `OQ-CLS-02`, `03`, `05`; `OQ-PROP-01` … `04`, `06`; `OQ-IMG-01`, `05`, `06`, `07`; `OQ-API-02`, `04`; `OQ-EVT-01` (items), `02`; `OQ-AUTHZ-01`, `02`; `OQ-PARTY-01`; `OQ-MIG-04`.
